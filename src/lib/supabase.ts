@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
 // Ключи берутся из .env.local (локально) и из Vercel → Settings → Environment Variables (на проде).
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const rawUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+const url = rawUrl?.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
 
 // Понятная ошибка вместо «белого экрана», если ключи забыли вставить.
 if (!url || !anonKey) {

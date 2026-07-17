@@ -2,5 +2,5 @@
 # Где взять: supabase.com → твой проект → Project Settings → API Keys → Publishable key
 # ⚠️  .env.local НИКОГДА не коммить в git (он уже в .gitignore).
 
-VITE_SUPABASE_URL=https://ТВОЙ-ПРОЕКТ.supabase.co
-VITE_SUPABASE_ANON_KEY=sb_publishable_твой-публичный-ключ
+VITE_SUPABASE_URL=https://lbpzdoynjnanilebkrie.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxicHpkb3luam5hbmlsZWJrcmllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQwMDUxNDQsImV4cCI6MjA5OTU4MTE0NH0.-ypVdCxTveLb_MtfhPV3Z9428Ndf2eOpA175_Ilz_7k
