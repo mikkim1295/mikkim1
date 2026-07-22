@@ -100,6 +100,19 @@ const LEVEL_CONFIG = {
   normal: { count: 3, gapMin: 70, gapMax: 120, initialAhead: 0, offscreenBuffer: 0 },
   hard: { count: 3, gapMin: 70, gapMax: 120, initialAhead: 360, offscreenBuffer: 40 },
 } as const;
+const HARD_SEGMENT_PATTERN: Array<{
+  gapHeight: number;
+  gapCenterRatio: number;
+  pipeWidth: number;
+  spacing: number;
+  level: ObstacleLevel;
+  speed: ObstacleSpeed;
+}> = [
+  { gapHeight: 168, gapCenterRatio: 0.56, pipeWidth: 96, spacing: 112, level: 'middle', speed: 'normal' },
+  { gapHeight: 168, gapCenterRatio: 0.53, pipeWidth: 96, spacing: 112, level: 'middle-bottom', speed: 'normal' },
+  { gapHeight: 160, gapCenterRatio: 0.58, pipeWidth: 92, spacing: 118, level: 'middle', speed: 'fast' },
+  { gapHeight: 168, gapCenterRatio: 0.53, pipeWidth: 100, spacing: 110, level: 'top-middle', speed: 'normal' },
+];
 const getSpawnLead = (progress: number) =>
   Math.min(window.innerWidth * 0.22 + progress * 0.015, window.innerWidth * 0.55);
 
@@ -421,6 +434,7 @@ export default function App() {
   const resetTimerRef = useRef<number | null>(null);
   const fallTimerRef = useRef<number | null>(null);
   const forwardProgressRef = useRef(0);
+  const hardPatternIndexRef = useRef(0);
   const nextSpawnProgressRef = useRef(0);
   const lastSpawnLeftRef = useRef(0);
   const collisionFrameRef = useRef(0);
@@ -470,6 +484,7 @@ export default function App() {
     collisionFrameRef.current = 0;
     crashPointRef.current = null;
     nextCoinMilestoneRef.current = COIN_REWARD_STEP;
+    hardPatternIndexRef.current = 0;
     keysRef.current = { up: false, down: false, left: false, right: false };
     draggingRef.current = false;
 
@@ -599,7 +614,6 @@ export default function App() {
     const startClearance = selectedLevel === 'hard' && lastSpawnLeftRef.current === 0 ? 400 : 0;
     const isInitialBatch = lastSpawnLeftRef.current === 0;
     const normalInitialAhead = Math.max(planeScreenX + planeBounds.width + 96, 360);
-    const hardInitialGapCenter = START_PLANE_POSITION.y + Math.floor(Math.random() * 41) - 20;
     const segmentCount = difficulty.count;
     const levels: ObstacleLevel[] = ['top', 'top-middle', 'middle', 'middle-bottom', 'bottom'];
     const easyLevels: ObstacleLevel[] = [
@@ -630,12 +644,17 @@ export default function App() {
     while (segmentsSpawned < segmentCount) {
       const levelChoice = selectedLevel === 'easy'
         ? easyLevels[Math.floor(Math.random() * easyLevels.length)]
-        : levels[Math.floor(Math.random() * levels.length)];
-      const speedIndex = Math.floor(Math.random() * speeds.length);
+        : selectedLevel === 'hard'
+          ? HARD_SEGMENT_PATTERN[hardPatternIndexRef.current % HARD_SEGMENT_PATTERN.length].level
+          : levels[Math.floor(Math.random() * levels.length)];
+      const speedIndex = selectedLevel === 'hard'
+        ? hardPatternIndexRef.current % HARD_SEGMENT_PATTERN.length
+        : Math.floor(Math.random() * speeds.length);
 
       if (selectedLevel === 'normal' || selectedLevel === 'hard') {
+        const hardPattern = HARD_SEGMENT_PATTERN[hardPatternIndexRef.current % HARD_SEGMENT_PATTERN.length];
         const gapHeight = selectedLevel === 'hard'
-          ? Math.floor(148 + Math.random() * 40)
+          ? hardPattern.gapHeight
           : Math.floor(216 + Math.random() * 28);
         const minPipeHeight = 120;
         const maxTopHeight = Math.max(
@@ -655,7 +674,7 @@ export default function App() {
                 48,
                 Math.min(
                   maxTopHeight - 20,
-                  hardInitialGapCenter - Math.floor(gapHeight / 2),
+                  Math.floor(window.innerHeight * hardPattern.gapCenterRatio) - Math.floor(gapHeight / 2),
                 ),
               )
           : Math.max(
@@ -667,27 +686,28 @@ export default function App() {
         const bottomHeight = Math.max(0, window.innerHeight - topHeight - gapHeight + 48);
         const pipeWidthBase = normalWidth + [0, 0, 12, 18][Math.floor(Math.random() * 4)];
         const pipeWidth = selectedLevel === 'hard'
-          ? Math.max(80, Math.floor(pipeWidthBase * 0.9))
+          ? hardPattern.pipeWidth
           : Math.max(102, Math.floor(pipeWidthBase * 1.12));
         next.push(
-          buildObstacle('barrier', levelChoice, speeds[speedIndex], cursorLeft, {
+          buildObstacle('barrier', levelChoice, selectedLevel === 'hard' ? hardPattern.speed : speeds[speedIndex], cursorLeft, {
             barrierSide: 'top',
             barrierHeight: topHeight,
             barrierWidth: pipeWidth,
           }),
-          buildObstacle('barrier', levelChoice, speeds[speedIndex], cursorLeft, {
+          buildObstacle('barrier', levelChoice, selectedLevel === 'hard' ? hardPattern.speed : speeds[speedIndex], cursorLeft, {
             barrierSide: 'bottom',
             barrierHeight: bottomHeight,
             barrierWidth: pipeWidth,
           }),
         );
 
-        cursorLeft += (selectedLevel === 'hard'
-          ? normalSpacing[Math.floor(Math.random() * normalSpacing.length)]
-          : Math.floor(normalSpacing[Math.floor(Math.random() * normalSpacing.length)] * 0.82)) + difficulty.gapMin;
-
-        cursorLeft += Math.floor(difficulty.gapMin * 0.5);
+        cursorLeft += selectedLevel === 'hard'
+          ? hardPattern.spacing
+          : Math.floor(normalSpacing[Math.floor(Math.random() * normalSpacing.length)] * 0.82) + Math.floor(difficulty.gapMin * 0.5);
         segmentsSpawned += 1;
+        if (selectedLevel === 'hard') {
+          hardPatternIndexRef.current += 1;
+        }
         continue;
       }
 
