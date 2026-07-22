@@ -108,10 +108,10 @@ const HARD_SEGMENT_PATTERN: Array<{
   level: ObstacleLevel;
   speed: ObstacleSpeed;
 }> = [
-  { gapHeight: 168, gapCenterRatio: 0.56, pipeWidth: 96, spacing: 112, level: 'middle', speed: 'normal' },
-  { gapHeight: 168, gapCenterRatio: 0.53, pipeWidth: 96, spacing: 112, level: 'middle-bottom', speed: 'normal' },
-  { gapHeight: 160, gapCenterRatio: 0.58, pipeWidth: 92, spacing: 118, level: 'middle', speed: 'fast' },
-  { gapHeight: 168, gapCenterRatio: 0.53, pipeWidth: 100, spacing: 110, level: 'top-middle', speed: 'normal' },
+  { gapHeight: 156, gapCenterRatio: 0.54, pipeWidth: 92, spacing: 116, level: 'middle', speed: 'fast' },
+  { gapHeight: 156, gapCenterRatio: 0.46, pipeWidth: 92, spacing: 116, level: 'middle-bottom', speed: 'fast' },
+  { gapHeight: 156, gapCenterRatio: 0.58, pipeWidth: 92, spacing: 116, level: 'top-middle', speed: 'fast' },
+  { gapHeight: 156, gapCenterRatio: 0.50, pipeWidth: 92, spacing: 116, level: 'middle', speed: 'fast' },
 ];
 const getSpawnLead = (progress: number) =>
   Math.min(window.innerWidth * 0.22 + progress * 0.015, window.innerWidth * 0.55);
@@ -678,9 +678,10 @@ export default function App() {
                 ),
               )
           : Math.max(
-              Math.max(minPipeHeight, Math.floor(maxTopHeight * 0.62)),
-              Math.floor(
-                Math.max(minPipeHeight, Math.floor(maxTopHeight * 0.62)) + Math.random() * Math.max(1, maxTopHeight - Math.max(minPipeHeight, Math.floor(maxTopHeight * 0.62))),
+              48,
+              Math.min(
+                maxTopHeight - 20,
+                Math.floor(window.innerHeight * hardPattern.gapCenterRatio) - Math.floor(gapHeight / 2),
               ),
             );
         const bottomHeight = Math.max(0, window.innerHeight - topHeight - gapHeight + 48);
@@ -723,10 +724,11 @@ export default function App() {
     }
 
     lastSpawnLeftRef.current = next[next.length - 1]?.worldLeft ?? startLeft;
-    nextSpawnProgressRef.current =
-      lastSpawnLeftRef.current +
-      difficulty.gapMin +
-      Math.random() * (difficulty.gapMax - difficulty.gapMin);
+    nextSpawnProgressRef.current = lastSpawnLeftRef.current + (
+      selectedLevel === 'hard'
+        ? HARD_SEGMENT_PATTERN[hardPatternIndexRef.current % HARD_SEGMENT_PATTERN.length].spacing
+        : difficulty.gapMin + Math.random() * (difficulty.gapMax - difficulty.gapMin)
+    );
     setObstacles((current) => [...current, ...next]);
   };
 
