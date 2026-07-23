@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Auth } from './components/Auth';
 import { MobileControls, type MobileControlDirection } from './components/MobileControls';
 
-const obstacleTypes = ['bird', 'plane', 'trash', 'human', 'apple', 'banana', 'orange', 'grape', 'barrier', 'coin', 'spike', 'block', 'pad'] as const;
+const obstacleTypes = ['bird', 'trash', 'human', 'apple', 'banana', 'orange', 'grape', 'barrier'] as const;
 
 type ObstacleType = (typeof obstacleTypes)[number];
 
@@ -19,21 +19,20 @@ type Obstacle = {
   worldLeft: number;
   travelMultiplier: number;
   spawnTop?: number;
-  verticalDrift?: number;
-  spawnProgress?: number;
   barrierSide?: 'top' | 'bottom';
   barrierHeight?: number;
   barrierWidth?: number;
-  coinValue?: number;
-  planeEmblem?: string;
-  planeStyle?: PlaneStyle;
 };
 
-type PlaneStyle = 'standard' | 'stealth' | 'razor' | 'bomber' | 'ember';
+type FruitTrail = {
+  id: number;
+  left: number;
+  top: number;
+  color: string;
+};
 
 const obstacleClassNames: Record<ObstacleType, string> = {
   bird: 'city-obstacle city-obstacle--bird',
-  plane: 'city-obstacle city-obstacle--plane',
   trash: 'city-obstacle city-obstacle--trash',
   human: 'city-obstacle city-obstacle--human',
   apple: 'city-obstacle city-obstacle--apple',
@@ -41,14 +40,18 @@ const obstacleClassNames: Record<ObstacleType, string> = {
   orange: 'city-obstacle city-obstacle--orange',
   grape: 'city-obstacle city-obstacle--grape',
   barrier: 'city-obstacle city-obstacle--barrier',
-  coin: 'city-obstacle city-obstacle--coin',
-  spike: 'city-obstacle city-obstacle--spike',
-  block: 'city-obstacle city-obstacle--block',
-  pad: 'city-obstacle city-obstacle--pad',
 };
 
-const PLANE_EMBLEMS = ['🔥', '💀', '⚡', '😈'] as const;
-const PLANE_STYLES: PlaneStyle[] = ['standard', 'stealth', 'razor', 'bomber', 'ember'];
+const fruitTypes = new Set<ObstacleType>(['apple', 'banana', 'orange', 'grape']);
+const fruitChoices: Extract<ObstacleType, 'apple' | 'banana' | 'orange' | 'grape'>[] = ['apple', 'banana', 'orange', 'grape'];
+const groundChoices: Extract<ObstacleType, 'bird' | 'trash' | 'human'>[] = ['bird', 'trash', 'human'];
+const fruitLaneTops: Record<ObstacleLevel, number> = {
+  top: 84,
+  'top-middle': 146,
+  middle: 208,
+  'middle-bottom': 270,
+  bottom: 332,
+};
 
 const obstacleLevelClassNames: Record<ObstacleLevel, string> = {
   top: 'city-obstacle--top',
@@ -77,16 +80,6 @@ const villageHouses = [
 
 const alpineChunks = Array.from({ length: 20 }, (_, index) => index);
 
-const fruitTypes = new Set<ObstacleType>(['apple', 'banana', 'orange', 'grape']);
-const fruitChoices: Extract<ObstacleType, 'apple' | 'banana' | 'orange' | 'grape'>[] = ['apple', 'banana', 'orange', 'grape'];
-const groundChoices: Extract<ObstacleType, 'bird' | 'trash' | 'human'>[] = ['bird', 'trash', 'human'];
-const fruitLaneTops: Record<ObstacleLevel, number> = {
-  top: 84,
-  'top-middle': 146,
-  middle: 208,
-  'middle-bottom': 270,
-  bottom: 332,
-};
 const WORLD_LOOKAHEAD = 100000;
 const OBSTACLE_DESPAWN_BEHIND = 100000;
 const CAVE_INTRO_DISTANCE = 50000;
@@ -97,7 +90,7 @@ const LEVEL_START_AHEAD = {
 } as const;
 const LEVEL_CONFIG = {
   easy: { count: 3, gapMin: 45, gapMax: 110, initialAhead: 120, offscreenBuffer: 35 },
-  normal: { count: 3, gapMin: 70, gapMax: 120, initialAhead: 0, offscreenBuffer: 0 },
+  normal: { count: 3, gapMin: 110, gapMax: 170, initialAhead: 280, offscreenBuffer: 30 },
   hard: { count: 3, gapMin: 70, gapMax: 120, initialAhead: 360, offscreenBuffer: 40 },
 } as const;
 const getSpawnLead = (progress: number) =>
@@ -124,7 +117,6 @@ const getViewportProfile = () => {
 
 const obstacleHitboxPadding: Record<ObstacleType, number> = {
   bird: 4,
-  plane: 12,
   trash: 10,
   human: 10,
   apple: 0,
@@ -132,15 +124,11 @@ const obstacleHitboxPadding: Record<ObstacleType, number> = {
   orange: 8,
   grape: 12,
   barrier: 16,
-  coin: 8,
-  spike: 8,
-  block: 8,
-  pad: 4,
 };
 
 const obstacleHitboxPaddingByLevel: Record<'easy' | 'normal' | 'hard', number> = {
   easy: 0,
-  normal: 8,
+  normal: 2,
   hard: 10,
 };
 
@@ -249,6 +237,7 @@ export default function App() {
     const parsedBrightness = Number(savedBrightness);
     return Number.isFinite(parsedBrightness) ? clampScreenBrightness(parsedBrightness) : 1;
   });
+  const [fruitTrails, setFruitTrails] = useState<FruitTrail[]>([]);
   const [gameLost, setGameLost] = useState(false);
   const [levelComplete, setLevelComplete] = useState(false);
   const [gamePaused, setGamePaused] = useState(false);
@@ -258,7 +247,6 @@ export default function App() {
   const obstacleElementRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const skyRef = useRef<HTMLDivElement | null>(null);
   const [forwardProgress, setForwardProgress] = useState(0);
-  const [fruitTrails, setFruitTrails] = useState<Array<{ id: number; left: number; top: number; color: string }>>([]);
   const [planePosition, setPlanePosition] = useState(() => ({
     x: START_PLANE_POSITION.x,
     y: START_PLANE_POSITION.y,
@@ -277,13 +265,16 @@ export default function App() {
   const [obstacles, setObstacles] = useState<Obstacle[]>([
     {
       id: 0,
-      type: 'bird',
+      type: 'barrier',
       level: 'middle',
       speed: 'normal',
       spawnedAt: performance.now(),
       hit: false,
       worldLeft: 120,
       travelMultiplier: 1,
+      barrierSide: 'top',
+      barrierHeight: 220,
+      barrierWidth: 96,
     },
   ]);
   const [planeExploded, setPlaneExploded] = useState(false);
@@ -565,7 +556,7 @@ export default function App() {
     levelChoice: ObstacleLevel,
     speedChoice: ObstacleSpeed,
     worldLeft: number,
-    overrides?: Partial<Pick<Obstacle, 'barrierSide' | 'barrierHeight' | 'barrierWidth' | 'spawnTop' | 'spawnProgress' | 'coinValue' | 'planeEmblem' | 'planeStyle'>>,
+    overrides?: Partial<Pick<Obstacle, 'barrierSide' | 'barrierHeight' | 'barrierWidth' | 'spawnTop'>>,
   ): Obstacle => ({
     id: nextIdRef.current++,
     type: choice,
@@ -574,7 +565,7 @@ export default function App() {
     spawnedAt: performance.now(),
     hit: false,
     worldLeft,
-    travelMultiplier: choice === 'plane' ? 1.8 : choice === 'bird' ? 1.15 : 1,
+    travelMultiplier: choice === 'bird' ? 1.15 : 1,
     spawnTop: fruitTypes.has(choice)
       ? fruitLaneTops[levelChoice] + (Math.random() * 46 - 23)
       : undefined,
@@ -585,22 +576,19 @@ export default function App() {
     barrierWidth: choice === 'barrier'
       ? [78, 94, 112, 132][Math.floor(Math.random() * 4)]
       : undefined,
-    planeEmblem: choice === 'plane'
-      ? PLANE_EMBLEMS[Math.floor(Math.random() * PLANE_EMBLEMS.length)]
-      : undefined,
-    planeStyle: choice === 'plane'
-      ? PLANE_STYLES[Math.floor(Math.random() * PLANE_STYLES.length)]
-      : undefined,
     ...overrides,
   });
 
   const spawnObstacleBatch = (baseProgress: number) => {
     const difficulty = LEVEL_CONFIG[selectedLevel];
-    const startClearance = selectedLevel === 'hard' && lastSpawnLeftRef.current === 0 ? 400 : 0;
+    const startClearance = selectedLevel === 'hard'
+      ? (lastSpawnLeftRef.current === 0 ? 400 : 0)
+      : selectedLevel === 'normal'
+        ? (lastSpawnLeftRef.current === 0 ? 260 : 0)
+        : 0;
     const isInitialBatch = lastSpawnLeftRef.current === 0;
     const normalInitialAhead = Math.max(planeScreenX + planeBounds.width + 96, 360);
     const segmentCount = difficulty.count;
-    const levels: ObstacleLevel[] = ['top', 'top-middle', 'middle', 'middle-bottom', 'bottom'];
     const easyLevels: ObstacleLevel[] = [
       'top',
       'top-middle',
@@ -627,118 +615,79 @@ export default function App() {
     let segmentsSpawned = 0;
 
     while (segmentsSpawned < segmentCount) {
-      if (selectedLevel === 'hard') {
-        const hardLevels: ObstacleLevel[] = ['top-middle', 'middle', 'middle-bottom', 'bottom'];
-        const hardChoices: ObstacleType[] = ['bird', 'trash', 'human', 'apple', 'banana', 'orange', 'grape', 'plane', 'coin'];
-        const levelChoice = hardLevels[Math.floor(Math.random() * hardLevels.length)];
-        const speedChoice: ObstacleSpeed = Math.random() < 0.62
-          ? 'fast'
-          : Math.random() < 0.82
-            ? 'normal'
-            : 'slow';
-
-        if (Math.random() < 0.22) {
-          const gapHeight = Math.floor(178 + Math.random() * 64);
-          const minPipeHeight = 120;
-          const maxTopHeight = Math.max(
-            minPipeHeight,
-            Math.floor(window.innerHeight - gapHeight - minPipeHeight),
-          );
-          const centerBias = 0.42 + Math.random() * 0.24;
-          const topHeight = Math.max(
-            48,
-            Math.min(
-              maxTopHeight - 20,
-              Math.floor(window.innerHeight * centerBias) - Math.floor(gapHeight / 2),
-            ),
-          );
-          const bottomHeight = Math.max(0, window.innerHeight - topHeight - gapHeight + 48);
-          const pipeWidthBase = normalWidth + [0, 0, 12, 18][Math.floor(Math.random() * 4)];
-          const pipeWidth = Math.max(88, Math.min(120, Math.floor(pipeWidthBase * (0.92 + Math.random() * 0.08))));
-
-          next.push(
-            buildObstacle('barrier', levelChoice, speedChoice, cursorLeft, {
-              barrierSide: 'top',
-              barrierHeight: topHeight,
-              barrierWidth: pipeWidth,
-            }),
-            buildObstacle('barrier', levelChoice, speedChoice, cursorLeft, {
-              barrierSide: 'bottom',
-              barrierHeight: bottomHeight,
-              barrierWidth: pipeWidth,
-            }),
-          );
-
-          cursorLeft += Math.floor(normalSpacing[Math.floor(Math.random() * normalSpacing.length)] * (0.72 + Math.random() * 0.28));
-        } else {
-          const choice = hardChoices[Math.floor(Math.random() * hardChoices.length)];
-          next.push(
-            buildObstacle(choice, levelChoice, speedChoice, cursorLeft, {
-              spawnTop: fruitTypes.has(choice)
-                ? fruitLaneTops[levelChoice] + (Math.random() * 70 - 35)
-                : undefined,
-            }),
-          );
-
-          cursorLeft += Math.floor(difficulty.gapMin * (0.75 + Math.random() * 0.6));
-        }
-
-        segmentsSpawned += 1;
-        continue;
-      }
-
-      if (selectedLevel === 'normal') {
-        const levelChoice = levels[Math.floor(Math.random() * levels.length)];
+      if (selectedLevel === 'easy') {
+        const levelChoice = easyLevels[Math.floor(Math.random() * easyLevels.length)];
         const speedChoice = speeds[Math.floor(Math.random() * speeds.length)];
-        const gapHeight = Math.floor(216 + Math.random() * 28);
-        const minPipeHeight = 120;
-        const maxTopHeight = Math.max(
-          minPipeHeight,
-          Math.floor(window.innerHeight - gapHeight - minPipeHeight),
-        );
-        const topHeight = Math.max(
-          40,
-          Math.min(
-            maxTopHeight,
-            START_PLANE_POSITION.y - Math.floor((gapHeight - 48) / 2) + Math.floor(Math.random() * 81) - 40,
-          ),
-        );
-        const bottomHeight = Math.max(0, window.innerHeight - topHeight - gapHeight + 48);
-        const pipeWidthBase = normalWidth + [0, 0, 12, 18][Math.floor(Math.random() * 4)];
-        const pipeWidth = Math.max(102, Math.floor(pipeWidthBase * 1.12));
-        next.push(
-          buildObstacle('barrier', levelChoice, speedChoice, cursorLeft, {
-            barrierSide: 'top',
-            barrierHeight: topHeight,
-            barrierWidth: pipeWidth,
-          }),
-          buildObstacle('barrier', levelChoice, speedChoice, cursorLeft, {
-            barrierSide: 'bottom',
-            barrierHeight: bottomHeight,
-            barrierWidth: pipeWidth,
-          }),
-        );
-
-        cursorLeft += Math.floor(normalSpacing[Math.floor(Math.random() * normalSpacing.length)] * 0.82) + Math.floor(difficulty.gapMin * 0.5);
+        const choice: ObstacleType = Math.random() < 0.48
+          ? fruitChoices[Math.floor(Math.random() * fruitChoices.length)]
+          : groundChoices[Math.floor(Math.random() * groundChoices.length)];
+        next.push(buildObstacle(choice, levelChoice, speedChoice, cursorLeft));
+        cursorLeft += difficulty.gapMin;
         segmentsSpawned += 1;
         continue;
       }
 
-      const levelChoice = easyLevels[Math.floor(Math.random() * easyLevels.length)];
-      const speedChoice = speeds[Math.floor(Math.random() * speeds.length)];
-      const choice: ObstacleType = Math.random() < 0.48
-        ? fruitChoices[Math.floor(Math.random() * fruitChoices.length)]
-        : groundChoices[Math.floor(Math.random() * groundChoices.length)];
-      next.push(buildObstacle(choice, levelChoice, speedChoice, cursorLeft));
+      const levelChoice: ObstacleLevel = selectedLevel === 'normal'
+        ? (['top-middle', 'middle', 'middle-bottom', 'bottom'][Math.floor(Math.random() * 4)] as ObstacleLevel)
+        : (['middle', 'middle-bottom', 'bottom'][Math.floor(Math.random() * 3)] as ObstacleLevel);
+      const speedChoice: ObstacleSpeed = selectedLevel === 'normal'
+        ? (Math.random() < 0.85 ? 'normal' : 'fast')
+        : (Math.random() < 0.72 ? 'fast' : 'normal');
+      const gapHeight = selectedLevel === 'normal'
+        ? Math.floor(290 + Math.random() * 80)
+        : Math.floor(180 + Math.random() * 60);
+      const minPipeHeight = selectedLevel === 'hard' ? 108 : 88;
+      const maxTopHeight = Math.max(
+        minPipeHeight,
+        Math.floor(window.innerHeight - gapHeight - minPipeHeight),
+      );
+      const centerBias = selectedLevel === 'normal'
+        ? (() => {
+            const roll = Math.random();
+            if (roll < 0.5) {
+              return 0.36 + Math.random() * 0.12;
+            }
+            return 0.52 + Math.random() * 0.12;
+          })()
+        : 0.42 + Math.random() * 0.18;
+      const topHeight = Math.max(
+        40,
+        Math.min(
+          maxTopHeight,
+          Math.floor(window.innerHeight * centerBias) - Math.floor(gapHeight / 2),
+        ),
+      );
+      const bottomHeight = Math.max(0, window.innerHeight - topHeight - gapHeight + 48);
+      const pipeWidthBase = normalWidth + [0, 0, 12, 18][Math.floor(Math.random() * 4)];
+      const pipeWidth = selectedLevel === 'hard'
+        ? Math.max(88, Math.min(114, Math.floor(pipeWidthBase * (0.9 + Math.random() * 0.05))))
+        : Math.max(82, Math.min(104, Math.floor(pipeWidthBase * (0.82 + Math.random() * 0.06))));
 
-      cursorLeft += difficulty.gapMin;
+      next.push(
+        buildObstacle('barrier', levelChoice, speedChoice, cursorLeft, {
+          barrierSide: 'top',
+          barrierHeight: topHeight,
+          barrierWidth: pipeWidth,
+        }),
+        buildObstacle('barrier', levelChoice, speedChoice, cursorLeft, {
+          barrierSide: 'bottom',
+          barrierHeight: bottomHeight,
+          barrierWidth: pipeWidth,
+        }),
+      );
+
+      cursorLeft += selectedLevel === 'hard'
+        ? Math.floor(normalSpacing[Math.floor(Math.random() * normalSpacing.length)] * (0.78 + Math.random() * 0.18))
+        : Math.floor(normalSpacing[Math.floor(Math.random() * normalSpacing.length)] * (1.0 + Math.random() * 0.12));
       segmentsSpawned += 1;
     }
 
     lastSpawnLeftRef.current = next[next.length - 1]?.worldLeft ?? startLeft;
     nextSpawnProgressRef.current = lastSpawnLeftRef.current + (
       selectedLevel === 'hard'
-        ? Math.floor(difficulty.gapMin * (0.75 + Math.random() * 0.7))
+        ? Math.floor(difficulty.gapMin * (0.84 + Math.random() * 0.24))
+        : selectedLevel === 'normal'
+          ? Math.floor(difficulty.gapMin * (1.08 + Math.random() * 0.18))
         : difficulty.gapMin + Math.random() * (difficulty.gapMax - difficulty.gapMin)
     );
     setObstacles((current) => [...current, ...next]);
@@ -1028,62 +977,14 @@ export default function App() {
             obstacleTop: obstacleRect.top,
           };
 
-          if (isEasyLevel) {
-            planeHitRef.current = true;
-            setPlaneExploded(true);
-            setFallingObstacleId(obstacle.id);
-            window.setTimeout(() => {
-              setPlaneExploded(false);
-              planeHitRef.current = false;
-              setGameLost(true);
-            }, 150);
-            return { ...obstacle, hit: true };
-          }
-
-          if (obstacle.type === 'coin') {
-            setCoins((current) => current + (obstacle.coinValue ?? 1));
-            return { ...obstacle, hit: true };
-          }
-
-          const isDeadlyOrange = obstacle.type === 'orange' && isHardLevel;
-          const isNonLethalFruitHit =
-            fruitTypes.has(obstacle.type) &&
-            obstacle.type !== 'apple' &&
-            !isDeadlyOrange &&
-            !isEasyLevel;
-          const shouldLoseImmediately = !isNonLethalFruitHit;
-
-          if (isNonLethalFruitHit) {
-            const fruitColorMap: Record<Extract<ObstacleType, 'apple' | 'banana' | 'orange' | 'grape'>, string> = {
-              apple: '#d63c33',
-              banana: '#f4b93a',
-              orange: '#ff8c1a',
-              grape: '#7c4cf0',
-            };
-
-            setFruitTrails((current) => [
-              ...current,
-              {
-                id: obstacle.id,
-                left: planeRect.left,
-                top: planeRect.top + planeRect.height / 2,
-                color: fruitColorMap[obstacle.type as Extract<ObstacleType, 'apple' | 'banana' | 'orange' | 'grape'>],
-              },
-            ]);
-          }
-
-          if (shouldLoseImmediately) {
-            planeHitRef.current = true;
-            setPlaneExploded(true);
-            setFallingObstacleId(obstacle.id);
-            window.setTimeout(() => {
-              setPlaneExploded(false);
-              planeHitRef.current = false;
-              setGameLost(true);
-            }, 150);
-            return { ...obstacle, hit: true };
-          }
-
+          planeHitRef.current = true;
+          setPlaneExploded(true);
+          setFallingObstacleId(obstacle.id);
+          window.setTimeout(() => {
+            setPlaneExploded(false);
+            planeHitRef.current = false;
+            setGameLost(true);
+          }, 150);
           return { ...obstacle, hit: true };
         }
 
@@ -1422,7 +1323,7 @@ export default function App() {
                 delete obstacleElementRefs.current[obstacle.id];
               }
             }}
-            className={`${obstacleClassNames[obstacle.type]} ${obstacleLevelClassNames[obstacle.level]} ${obstacleSpeedClassNames[obstacle.speed]}${obstacle.type === 'barrier' && obstacle.barrierSide ? ` city-obstacle--barrier--${obstacle.barrierSide}` : ''}${obstacle.type === 'orange' && obstacle.hit ? ' city-obstacle--orange-hit' : ''}${obstacle.hit && fallingObstacleId === obstacle.id ? ' city-obstacle--falling' : ''}`}
+          className={`${obstacleClassNames[obstacle.type]} ${obstacleLevelClassNames[obstacle.level]} ${obstacleSpeedClassNames[obstacle.speed]}${obstacle.type === 'barrier' && obstacle.barrierSide ? ` city-obstacle--barrier--${obstacle.barrierSide}` : ''}${obstacle.hit && fallingObstacleId === obstacle.id ? ' city-obstacle--falling' : ''}`}
             style={
               obstacle.hit && fallingObstacleId === obstacle.id
                 ? ({
@@ -1434,40 +1335,25 @@ export default function App() {
                     top: obstacle.type === 'barrier'
                       ? obstacle.barrierSide === 'top'
                         ? '0px'
-                        : 'auto'
-                      : obstacle.type === 'spike'
-                        ? obstacle.level === 'top'
-                          ? '54px'
-                          : undefined
-                        : (fruitTypes.has(obstacle.type) || obstacle.type === 'coin') && obstacle.spawnTop !== undefined
+                        : undefined
+                      : (fruitTypes.has(obstacle.type) && obstacle.spawnTop !== undefined)
                         ? `${obstacle.spawnTop}px`
                         : undefined,
                     bottom: obstacle.type === 'barrier'
                       ? obstacle.barrierSide === 'bottom'
                         ? '0px'
-                        : 'auto'
-                      : obstacle.type === 'spike' || obstacle.type === 'block' || obstacle.type === 'pad'
-                        ? obstacle.level === 'bottom'
-                          ? '0px'
-                          : undefined
+                        : undefined
                       : undefined,
-                    height: obstacle.type === 'barrier' || obstacle.type === 'spike' || obstacle.type === 'block' || obstacle.type === 'pad'
+                    height: obstacle.type === 'barrier'
                       ? `${obstacle.barrierHeight ?? 240}px`
                       : undefined,
-                    width: obstacle.type === 'barrier' || obstacle.type === 'spike' || obstacle.type === 'block' || obstacle.type === 'pad'
+                    width: obstacle.type === 'barrier'
                       ? `${obstacle.barrierWidth ?? 96}px`
                       : undefined,
                   } as CSSProperties)
             }
           >
             {obstacle.type === 'bird' && <div className="city-obstacle__bird" />}
-            {obstacle.type === 'plane' && (
-              <div className={`city-obstacle__mini-plane city-obstacle__mini-plane--${obstacle.planeStyle ?? 'standard'}`}>
-                <span className="city-obstacle__mini-plane-emoji" aria-hidden="true">
-                  {obstacle.planeEmblem ?? '🔥'}
-                </span>
-              </div>
-            )}
             {obstacle.type === 'trash' && <div className="city-obstacle__trash-can" />}
             {obstacle.type === 'human' && <div className="city-obstacle__human" />}
             {obstacle.type === 'apple' && <div className="city-obstacle__fruit city-obstacle__fruit--apple" />}
@@ -1475,10 +1361,6 @@ export default function App() {
             {obstacle.type === 'orange' && <div className="city-obstacle__fruit city-obstacle__fruit--orange" />}
             {obstacle.type === 'grape' && <div className="city-obstacle__fruit city-obstacle__fruit--grape" />}
             {obstacle.type === 'barrier' && <div className="city-obstacle__barrier" />}
-            {obstacle.type === 'spike' && <div className="city-obstacle__spike" />}
-            {obstacle.type === 'block' && <div className="city-obstacle__block" />}
-            {obstacle.type === 'pad' && <div className="city-obstacle__pad" />}
-            {obstacle.type === 'coin' && <div className="city-obstacle__coin" />}
           </div>
         ))}
         <div className="city-sun" />
